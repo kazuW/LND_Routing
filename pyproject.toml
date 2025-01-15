@@ -12,6 +12,7 @@ openai = "1.40.6"
 httpx = "0.27.2"
 python-dotenv = "^1.0.0"
 gradio = "4.44.1"
+colorama "0.4.6"
 
 
 [build-system]

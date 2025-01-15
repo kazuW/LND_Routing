@@ -283,6 +283,7 @@ def main():
 
     # Gradioを利用してデータを表示
     with gr.Blocks() as iface:
+        title="LND Routing"  # タブの名前を指定
         with gr.Tabs():
             with gr.TabItem("Node information"):
                 gr.Markdown("# Node Information")  # 見出しを追加

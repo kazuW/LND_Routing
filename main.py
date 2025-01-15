@@ -1,7 +1,7 @@
 from openai import OpenAI
 from pydantic import BaseModel
 
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
 import os
 import json
 import gradio as gr
@@ -9,7 +9,7 @@ import pandas as pd
 import sys
 from datetime import datetime, timezone, timedelta
 
-load_dotenv()
+#load_dotenv()
 
 """
 class Channel(BaseModel):

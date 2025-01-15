@@ -10,7 +10,7 @@ packages = [{include = "lnd_routing"}]
 python = "3.11.3"
 openai = "1.40.6"
 httpx = "0.27.2"
-python-dotenv = "^1.0.0"
+#python-dotenv = "^1.0.0"
 gradio = "4.44.1"
 
 

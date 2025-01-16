@@ -113,6 +113,26 @@ def read_fwd_data(fwd_data_file):
     
     return fwd_data, channel_file
 
+# fowarding履歴のJSONファイルをクライアントから読み込む
+def read_fwd_data_ext(fwd_data_file):
+    with open(fwd_data_file, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+        fwd_data = data["forwarding_events"]
+        #channel_file = data["listchannel_file"]
+        #print("fowarding Data数 : ",len(fwd_data))
+
+    # fowarding履歴のalias名がない場合、chan_id_in, chan_id_outに置き換える
+    for i in range(0, len(fwd_data)):
+        if "edge not found" in fwd_data[i]["peer_alias_in"]:
+            #print("edge not found input")
+            fwd_data[i]["peer_alias_in"] = "n" + fwd_data[i]["chan_id_in"]
+        if "edge not found" in fwd_data[i]["peer_alias_out"]:
+            #print("edge not found output")
+            fwd_data[i]["peer_alias_out"] = "n" + fwd_data[i]["chan_id_out"]
+            #print(fwd_data[i]["peer_alias_in"])
+    
+    return fwd_data
+
 # 接続してるchanel状態のJSONファイルを読み込む
 def read_channel_data(chan_data_file):
     with open(chan_data_file, 'r', encoding='utf-8') as f:
@@ -246,14 +266,20 @@ def display_table(data, sort_by=None, reverse_sort=False):
     return gr.Markdown(markdown)
 
 # ファイルを読み込む関数
-def load_file(data_dir, file_name):
-    file_path = os.path.join(data_dir, file_name)
-    fwd_data, channel_data_file = read_fwd_data(file_path)
-    re_data = reStructure_data(fwd_data)
-    file_path = os.path.join(data_dir, channel_data_file)
-    channel_data = read_channel_data(file_path)
-    re_data = add_other_data(re_data, channel_data)
-    return re_data, channel_data
+def load_file(data_dir, file_name, use_client_files, fwd_data_file=None, chan_data_file=None):
+    if use_client_files:
+        fwd_data = read_fwd_data_ext(fwd_data_file.name)
+        re_data = reStructure_data(fwd_data)
+        chan_data = read_channel_data(chan_data_file.name)
+        re_data = add_other_data(re_data, chan_data)
+    else:
+        file_path = os.path.join(data_dir, file_name)
+        fwd_data, channel_data_file = read_fwd_data(file_path)
+        re_data = reStructure_data(fwd_data)
+        file_path = os.path.join(data_dir, channel_data_file)
+        chan_data = read_channel_data(file_path)
+        re_data = add_other_data(re_data, chan_data)
+    return re_data, chan_data
 
 # メイン関数
 def main():
@@ -273,11 +299,11 @@ def main():
     """
  
     # Gradioで表を表示する
-    def update_table(file_name, sort_by, reverse_sort):
-        re_data, channel_data = load_file(data_dir, file_name)
+    def update_table(file_name, sort_by, reverse_sort, use_client_files, fwd_data_file, chan_data_file):
+        re_data, chan_data = load_file(data_dir, file_name, use_client_files, fwd_data_file, chan_data_file)
         data = re_data.to_dict()
         data_period = f"<h3>・Data period: {re_data.start_time} ~ {re_data.end_time}</h3>"
-        routing_peer_num = f"<h3>・Routing peer number: {len(re_data.channel_peer)}/{len(channel_data)}</h3>"
+        routing_peer_num = f"<h3>・Routing peer number: {len(re_data.channel_peer)}/{len(chan_data)}</h3>"
         table_markdown = display_table(data, sort_by, reverse_sort)
         return data_period, routing_peer_num, table_markdown
 
@@ -293,15 +319,24 @@ def main():
             with gr.TabItem("Routing flow list"):
                 gr.Markdown("# Routing Flow List")  # 見出しを追加
                 file_dropdown = gr.Dropdown(choices=files, label="Select file")
+                use_client_files = gr.Checkbox(label="Use client files")
+                fwd_data_file = gr.File(label="Select fwd_data file", visible=False)
+                chan_data_file = gr.File(label="Select chan_data file", visible=False)
                 sort_by = gr.Dropdown(choices=["peer_alias", "capacity", "local_balance_ratio", "input_amt_sat", "output_amt_sat"], label="Sort by")
                 reverse_sort = gr.Checkbox(label="Reverse Sort")
                 data_period_markdown = gr.Markdown()  # データ期間を表示
                 routing_peer_num_markdown = gr.Markdown()  # ルーティングピア数を表示
                 table = gr.Markdown(elem_classes="scrollable")  # 初期状態で表を表示
-                file_dropdown.change(fn=update_table, inputs=[file_dropdown, sort_by, reverse_sort], outputs=[data_period_markdown, routing_peer_num_markdown, table])
-                sort_by.change(fn=update_table, inputs=[file_dropdown, sort_by, reverse_sort], outputs=[data_period_markdown, routing_peer_num_markdown, table])
-                reverse_sort.change(fn=update_table, inputs=[file_dropdown, sort_by, reverse_sort], outputs=[data_period_markdown, routing_peer_num_markdown, table])
-                gr.Column([file_dropdown, sort_by, reverse_sort])
+
+                def toggle_file_inputs(use_client_files):
+                    return gr.update(visible=use_client_files), gr.update(visible=use_client_files)
+
+                use_client_files.change(fn=toggle_file_inputs, inputs=use_client_files, outputs=[fwd_data_file, chan_data_file])
+                file_dropdown.change(fn=update_table, inputs=[file_dropdown, sort_by, reverse_sort, use_client_files, fwd_data_file, chan_data_file], outputs=[data_period_markdown, routing_peer_num_markdown, table])
+                sort_by.change(fn=update_table, inputs=[file_dropdown, sort_by, reverse_sort, use_client_files, fwd_data_file, chan_data_file], outputs=[data_period_markdown, routing_peer_num_markdown, table])
+                reverse_sort.change(fn=update_table, inputs=[file_dropdown, sort_by, reverse_sort, use_client_files, fwd_data_file, chan_data_file], outputs=[data_period_markdown, routing_peer_num_markdown, table])
+
+                gr.Column([file_dropdown, use_client_files, fwd_data_file, chan_data_file, sort_by, reverse_sort])
                 gr.Column([data_period_markdown])
                 gr.Column([routing_peer_num_markdown])
                 gr.Column([table])

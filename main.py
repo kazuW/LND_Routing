@@ -282,13 +282,12 @@ def main():
         return data_period, routing_peer_num, table_markdown
 
     # Gradioを利用してデータを表示
-    with gr.Blocks() as iface:
-        title="LND Routing"  # タブの名前を指定
+    with gr.Blocks(css=".scrollable { overflow-x: auto; white-space: nowrap; }") as iface:
         with gr.Tabs():
             with gr.TabItem("Node information"):
                 gr.Markdown("# Node Information")  # 見出しを追加
                 gr.Markdown(node_name)
-                gr.Markdown(node_pubkey)
+                gr.Markdown(node_pubkey, elem_classes="scrollable")
                 gr.Markdown(node_info)
 
             with gr.TabItem("Routing flow list"):
@@ -298,14 +297,14 @@ def main():
                 reverse_sort = gr.Checkbox(label="Reverse Sort")
                 data_period_markdown = gr.Markdown()  # データ期間を表示
                 routing_peer_num_markdown = gr.Markdown()  # ルーティングピア数を表示
-                table = gr.Markdown()  # 初期状態で表を表示
+                table = gr.Markdown(elem_classes="scrollable")  # 初期状態で表を表示
                 file_dropdown.change(fn=update_table, inputs=[file_dropdown, sort_by, reverse_sort], outputs=[data_period_markdown, routing_peer_num_markdown, table])
                 sort_by.change(fn=update_table, inputs=[file_dropdown, sort_by, reverse_sort], outputs=[data_period_markdown, routing_peer_num_markdown, table])
                 reverse_sort.change(fn=update_table, inputs=[file_dropdown, sort_by, reverse_sort], outputs=[data_period_markdown, routing_peer_num_markdown, table])
-                gr.Row([file_dropdown, sort_by, reverse_sort])
-                gr.Row([data_period_markdown])
-                gr.Row([routing_peer_num_markdown])
-                gr.Row([table])
+                gr.Column([file_dropdown, sort_by, reverse_sort])
+                gr.Column([data_period_markdown])
+                gr.Column([routing_peer_num_markdown])
+                gr.Column([table])
 
             with gr.TabItem("Other build"):
                 gr.Markdown("# Other build")

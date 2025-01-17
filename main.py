@@ -1,6 +1,10 @@
 from openai import OpenAI
 from pydantic import BaseModel
 
+import networkx as nx
+import matplotlib.pyplot as plt
+import scipy as sp
+
 from dotenv import load_dotenv
 import os
 import json
@@ -85,6 +89,9 @@ class ChannelList:
             "channel_num": self.channel_num
         }
 
+RE_DATA_GLOBAL = None
+CHAN_DATA_GLOBAL = None
+
 # Unixタイムスタンプを日本時間に変換する関数
 def convert_to_jst(unix_timestamp):
     # Unixタイムスタンプをdatetimeオブジェクトに変換
@@ -92,6 +99,11 @@ def convert_to_jst(unix_timestamp):
     # 日本時間（UTC+9）に変換
     dt_jst = dt_utc.astimezone(timezone(timedelta(hours=9)))
     return dt_jst.strftime('%Y-%m-%d %Y-%m-%d %H:%M:%S')
+
+
+# ディレクトリ内のファイルを抽出
+data_dir = "./data"
+files = [f for f in os.listdir(data_dir) if f.startswith("fwd_history")]
 
 # fowarding履歴のJSONファイルを読み込む
 def read_fwd_data(fwd_data_file):
@@ -265,13 +277,27 @@ def display_table(data, sort_by=None, reverse_sort=False):
     markdown = format_data_as_markdown(data)
     return gr.Markdown(markdown)
 
+# Gradioで表を表示する
+def update_table(file_name, sort_by, reverse_sort, use_client_files, fwd_data_file, chan_data_file):
+    re_data, chan_data = load_file(data_dir, file_name, use_client_files, fwd_data_file, chan_data_file)
+    data = re_data.to_dict()
+    data_period = f"<h3>・Data period: {re_data.start_time} ~ {re_data.end_time}</h3>"
+    routing_peer_num = f"<h3>・Routing peer number: {len(re_data.channel_peer)}/{len(chan_data)}</h3>"
+    table_markdown = display_table(data, sort_by, reverse_sort)
+    return data_period, routing_peer_num, table_markdown
+
 # ファイルを読み込む関数
 def load_file(data_dir, file_name, use_client_files, fwd_data_file=None, chan_data_file=None):
+    global RE_DATA_GLOBAL, CHAN_DATA_GLOBAL
     if use_client_files:
+        selected_fwd_data_file = fwd_data_file.name
+        selected_chan_data_file = chan_data_file.name
         fwd_data = read_fwd_data_ext(fwd_data_file.name)
         re_data = reStructure_data(fwd_data)
         chan_data = read_channel_data(chan_data_file.name)
         re_data = add_other_data(re_data, chan_data)
+        RE_DATA_GLOBAL = re_data
+        CHAN_DATA_GLOBAL = chan_data
     else:
         file_path = os.path.join(data_dir, file_name)
         fwd_data, channel_data_file = read_fwd_data(file_path)
@@ -279,16 +305,70 @@ def load_file(data_dir, file_name, use_client_files, fwd_data_file=None, chan_da
         file_path = os.path.join(data_dir, channel_data_file)
         chan_data = read_channel_data(file_path)
         re_data = add_other_data(re_data, chan_data)
+        RE_DATA_GLOBAL = re_data
+        CHAN_DATA_GLOBAL = chan_data
     return re_data, chan_data
+
+def generate_image(min_transaction_amount, calc_amountxsat):
+    # RE_DATA_GLOBALを更新
+    # グラフの作成
+    G = nx.DiGraph()  # 有向グラフを作成
+
+    transactions = []
+    transaction = ()
+
+    # データを追加（送信元、受信先、取引金額）
+    for i in range(0, len(RE_DATA_GLOBAL.channel_peer)):
+        for j in range(0, len(RE_DATA_GLOBAL.channel_peer[i].output_peer)):
+            if RE_DATA_GLOBAL.channel_peer[i].output_peer[j].amt_sat < min_transaction_amount:
+                continue
+            if calc_amountxsat:
+                amount = RE_DATA_GLOBAL.channel_peer[i].output_peer[j].amt_sat * RE_DATA_GLOBAL.channel_peer[i].output_peer[j].ave_fee /1000000
+            else:
+                amount = RE_DATA_GLOBAL.channel_peer[i].output_peer[j].amt_sat
+
+            transaction = (RE_DATA_GLOBAL.channel_peer[i].peer_alias, RE_DATA_GLOBAL.channel_peer[i].output_peer[j].alias, amount)
+            transactions.append(transaction)
+
+    data_num_node_text = f"Number of data: {len(transactions)}"
+    #print("data数=", len(transactions))
+
+    # ノードとエッジを追加
+    for sender, receiver, amount in transactions:
+        G.add_edge(sender, receiver, weight=amount)
+
+    # 可視化
+    #pos = nx.spring_layout(G)  # ノードの配置を決定
+    #plt.figure(figsize=(5, 5))
+    #pos = nx.spring_layout(G, k=0.5, iterations=200)
+    pos = nx.kamada_kawai_layout(G)
+    plt.figure(figsize=(16, 16))  # 画像サイズを大きくする
+
+
+    # ノードを描画
+    nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=3000, edgecolors='black')
+    nx.draw_networkx_edges(G, pos, arrowstyle='->', arrowsize=20, edge_color='gray', connectionstyle='arc3,rad=0.2')
+    nx.draw_networkx_labels(G, pos, font_size=10, font_color='black')
+
+    # エッジを描画
+    edge_labels = nx.get_edge_attributes(G, 'weight')
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color='red', font_size=10)
+
+
+    plt.title("Transaction Network", fontsize=20)
+    plt.axis('off')  # 軸を非表示にする
+
+    # 画像をファイルに保存
+    image_path = "graph.png"
+    plt.savefig(image_path)
+    plt.close()
+
+    return image_path, data_num_node_text
 
 # メイン関数
 def main():
-
-    # ディレクトリ内のファイルを抽出
-    data_dir = "./data"
-    files = [f for f in os.listdir(data_dir) if f.startswith("fwd_history")]
-
-     #node informationのデータ
+    global RE_DATA_GLOBAL, CHAN_DATA_GLOBAL
+    #node informationのデータ
     node_name = f"<h3>Node name: " + "Kazumyon</h3>"
     node_pubkey = f"<h3>Node pubkey: " + "039cdd937f8d83fb2f78c8d7ddc92ae28c9dbb5c4827181cfc80df60dee1b7bf19</h3>"
     node_info = f"""<h3>Node information: </h3>
@@ -297,17 +377,7 @@ def main():
       <h3>--- Twitter : @KazumyonL </h3>
       <h3>--- Telegram : @Kazumyon </h3>
     """
- 
-    # Gradioで表を表示する
-    def update_table(file_name, sort_by, reverse_sort, use_client_files, fwd_data_file, chan_data_file):
-        re_data, chan_data = load_file(data_dir, file_name, use_client_files, fwd_data_file, chan_data_file)
-        data = re_data.to_dict()
-        data_period = f"<h3>・Data period: {re_data.start_time} ~ {re_data.end_time}</h3>"
-        routing_peer_num = f"<h3>・Routing peer number: {len(re_data.channel_peer)}/{len(chan_data)}</h3>"
-        table_markdown = display_table(data, sort_by, reverse_sort)
-        return data_period, routing_peer_num, table_markdown
-
-    # Gradioを利用してデータを表示
+     # Gradioを利用してデータを表示
     with gr.Blocks(css=".scrollable { overflow-x: auto; white-space: nowrap; }") as iface:
         with gr.Tabs():
             with gr.TabItem("Node information"):
@@ -341,8 +411,14 @@ def main():
                 gr.Column([routing_peer_num_markdown])
                 gr.Column([table])
 
-            with gr.TabItem("Other build"):
-                gr.Markdown("# Other build")
+            with gr.TabItem("Routing visualization"):
+                gr.Markdown("# Routing visualization")
+                min_transaction_amount = gr.Number(label="Min. transaction amount", value=100000, precision=0)
+                calc_amountxsat = gr.Checkbox(label="Calculate amount x fee")
+                update_button = gr.Button("Update DATA & visualize")
+                data_num_node_output = gr.Markdown()
+                image_output = gr.Image()
+                update_button.click(fn=generate_image, inputs=[min_transaction_amount,calc_amountxsat], outputs=[image_output, data_num_node_output])
 
     iface.launch()
     

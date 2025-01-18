@@ -377,8 +377,14 @@ def main():
       <h3>--- Twitter : @KazumyonL </h3>
       <h3>--- Telegram : @Kazumyon </h3>
     """
+
+    banner = f"""<div style="background-color: #f0f0f0; padding: 10px; text-align: center;">
+                    <h2>Welcome to the LND Routing Dashboard</h2>
+                 </div>"""
+
      # Gradioを利用してデータを表示
     with gr.Blocks(css=".scrollable { overflow-x: auto; white-space: nowrap; }") as iface:
+        gr.Markdown(banner)  # バナーを追加
         with gr.Tabs():
             with gr.TabItem("Node information"):
                 gr.Markdown("# Node Information")  # 見出しを追加
@@ -419,6 +425,12 @@ def main():
                 data_num_node_output = gr.Markdown()
                 image_output = gr.Image()
                 update_button.click(fn=generate_image, inputs=[min_transaction_amount,calc_amountxsat], outputs=[image_output, data_num_node_output])
+                gr.Column([min_transaction_amount, calc_amountxsat, update_button])
+                gr.Column([data_num_node_output])
+                gr.Column([image_output])
+
+            with gr.TabItem("AI analysis"):
+                gr.Markdown("# AI analysis")
 
     iface.launch()
     

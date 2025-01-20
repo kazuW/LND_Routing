@@ -1,34 +1,17 @@
-from openai import OpenAI
-from pydantic import BaseModel
-
 import networkx as nx
 import matplotlib.pyplot as plt
 import scipy as sp
-
-from dotenv import load_dotenv
-import os
-import json
 import gradio as gr
 import pandas as pd
+import os
+import json
 import sys
+from dotenv import load_dotenv
+
 from datetime import datetime, timezone, timedelta
+from ai_engine import chat
 
 load_dotenv()
-
-"""
-class Channel(BaseModel):
-    alias: str
-    ave_fee: float
-    sigma: float
-
-class ChannelDetail(BaseModel):
-    peer_alias: str
-    input_peer: list[Channel]
-    output_peer: list[Channel]
-
-class ChannelList(BaseModel):
-    channel_peer: list[ChannelDetail]
-"""
 
 class channel:
     def __init__(self, alias: str, ave_fee: float, ave_min: float, ave_max: float, amt_sat: float, count: int):
@@ -91,6 +74,8 @@ class ChannelList:
 
 RE_DATA_GLOBAL = None
 CHAN_DATA_GLOBAL = None
+RE_DATA_JSON = None
+CHAN_DATA_JSON = None
 
 # Unixタイムスタンプを日本時間に変換する関数
 def convert_to_jst(unix_timestamp):
@@ -288,7 +273,7 @@ def update_table(file_name, sort_by, reverse_sort, use_client_files, fwd_data_fi
 
 # ファイルを読み込む関数
 def load_file(data_dir, file_name, use_client_files, fwd_data_file=None, chan_data_file=None):
-    global RE_DATA_GLOBAL, CHAN_DATA_GLOBAL
+    global RE_DATA_GLOBAL, CHAN_DATA_GLOBAL, RE_DATA_JSON, CHAN_DATA_JSON_P
     if use_client_files:
         selected_fwd_data_file = fwd_data_file.name
         selected_chan_data_file = chan_data_file.name
@@ -307,6 +292,19 @@ def load_file(data_dir, file_name, use_client_files, fwd_data_file=None, chan_da
         re_data = add_other_data(re_data, chan_data)
         RE_DATA_GLOBAL = re_data
         CHAN_DATA_GLOBAL = chan_data
+    
+            # re_dataを文字列に変換
+    RE_DATA_JSON_P = json.dumps(re_data.to_dict(), ensure_ascii=False, indent=2)
+    RE_DATA_JSON = json.dumps(re_data.to_dict(), ensure_ascii=False, separators=(',', ':'))
+
+    #print("---------------------------------")
+    #with open('re_data_str.txt', 'w', encoding='utf-8') as file:
+    #    file.write(re_data_str)
+    #print("-------------json data file write!! --------------------")
+    #with open('re_data_json.txt', 'w', encoding='utf-8') as file:
+    #    file.write(RE_DATA_JSON_P)
+    #print("-------------write file (re_data_json_p)------------")
+
     return re_data, chan_data
 
 def generate_image(min_transaction_amount, calc_amountxsat):
@@ -367,7 +365,8 @@ def generate_image(min_transaction_amount, calc_amountxsat):
 
 # メイン関数
 def main():
-    global RE_DATA_GLOBAL, CHAN_DATA_GLOBAL
+    global RE_DATA_GLOBAL, CHAN_DATA_GLOBAL, RE_DATA_JSON, CHAN_DATA_JSON_P
+
     #node informationのデータ
     node_name = f"<h3>Node name: " + "Kazumyon</h3>"
     node_pubkey = f"<h3>Node pubkey: " + "039cdd937f8d83fb2f78c8d7ddc92ae28c9dbb5c4827181cfc80df60dee1b7bf19</h3>"
@@ -380,10 +379,30 @@ def main():
 
     banner = f"""<div style="background-color: #f0f0f0; padding: 10px; text-align: center;">
                     <h2>Welcome to the LND Routing Dashboard</h2>
+                    <br>
                  </div>"""
 
+    # Google Analyticsのトラッキングコードを追加
+    google_analytics = """
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-51Z2XC2Z6H"></script>
+    <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'id=G-51Z2XC2Z6H');
+    </script>
+    """
+
+    css = """
+    .scrollable { overflow-x: auto; white-space: nowrap; }
+    .chat-interface { height: 800px !important; }
+    """
+
      # Gradioを利用してデータを表示
-    with gr.Blocks(css=".scrollable { overflow-x: auto; white-space: nowrap; }") as iface:
+    with gr.Blocks(css=css) as iface:
+        gr.Markdown(google_analytics)
         gr.Markdown(banner)  # バナーを追加
         with gr.Tabs():
             with gr.TabItem("Node information"):
@@ -431,68 +450,43 @@ def main():
 
             with gr.TabItem("AI analysis"):
                 gr.Markdown("# AI analysis")
+                translate_to_english = gr.Checkbox(label="Translate questions to English")
+                chat_interface = gr.ChatInterface(fn=lambda message, history: chat(message, history, RE_DATA_JSON), type="messages")
 
-    iface.launch()
+                gr.Markdown("## Sample questions")
+
+                # Sample questions in Japanese and English
+                questions_jp = [
+                    "各チャンネルの出力nodeの平均手数料が高く総流出量が多いチャンネルはありますか?",
+                    "各チャンネルの総流出量や総流入量が偏って多くLocal balanceの割合が偏ってしまうチャンネルはありますか?",
+                    "各チャンネルのLocal balanceの割合が30%-70%に近く総流出量と総流入量が多いnodeはありますか?",
+                    "手数料をたくさん稼いでいるチャンネル上位５つをあげてください?",
+                    "各チャンネルの特性に基づいて、手数料の稼ぎやすさや資金の流れの偏りを分析してください。"
+                ]
+
+                questions_en = [
+                    "Are there any channels where the average fee of the output node is high and the total outflow is large?",
+                    "Are there any channels where the total outflow and total inflow are biased and the Local balance ratio is biased?",
+                    "Are there any nodes where the Local balance ratio is close to 30%-70% and the total outflow and total inflow are large?",
+                    "Please list the top 5 channels that earn the most fees.",
+                    "Please analyze the ease of earning fees and the bias of fund flow based on the characteristics of each channel."
+                ]
+
+                def display_questions(translate):
+                    if translate:
+                        questions = questions_en
+                    else:
+                        questions = questions_jp
+                    return "\n".join([f"<span style='font-size: 20px;'>- {question}</span><br>" for question in questions])
+
+                questions_markdown = gr.Markdown(display_questions(False))
+                translate_to_english.change(fn=display_questions, inputs=translate_to_english, outputs=questions_markdown)
+                
+                questions_markdown
+
+        iface.launch()
     
-    sys.exit()
-    #print("---------------------------------")
-    #with open('re_data_str.txt', 'w', encoding='utf-8') as file:
-    #    file.write(re_data_str)
-    #print("-------------json data file write!! --------------------")
-    #with open('re_data_json.txt', 'w', encoding='utf-8') as file:
-    #    file.write(re_data_json_p)
-    #print("---------------------------------")
-
     #sys.exit()
-    # OpenAI APIを利用して、fowarding履歴の解析を行う
-    client = OpenAI()
-
-    response = client.beta.chat.completions.parse(
-        #model="gpt-4o-2024-08-06",
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "user",
-                "content": f""" \
-                "channel_peer"は"channel_detail"のListです。\
-                "channel_detail"にはnode名"peer_alias"とnodeに対する入力node名一覧"input_peer"出力node名一覧"output_peer"があります。 \
-                入力node一覧にはそれぞれのnodeの総流入量"amt_sat"が示してあります。 \
-                出力node一覧にはそれぞれのnodeの総流出量"amt_sat"が示してあります。\
-                入力node一覧にはそれぞれのnodeの総流入量時の平均手数料"fee_ave"が示してあります。\
-                出力node一覧にはそれぞれのnodeの総流出量時の平均手数料"fee_ave"が示してあります。 \
-                "channel_detail"にはすべての入力nodeからの総流入量"input_amt_sat"が示してあります。\
-                "channel_detail"にはすべての出力nodeからの総流出量"output_amt_sat"が示してあります。\
-                "channel_detail"にはnode名"peer_alias"の現在の総容量に対するLocal balanceの割合が"local_balance_ratio"として示してあります。\
-
-                以上を前提として以下のjson形式の入力をもとに次の考察をしてください。\n\n{re_data_json} \
-                また、このデータをきれいにhtml形式で表示するためのコードを生成してください。
-                日本語に翻訳してください。
-
-                1.各チャンネルの出力nodeの平均手数料が高く総流出量が多いチャンネルはありますか?
-                    （このようなチャンネル群はより多くの手数料を稼ぎます。）
-                2.各チャンネルの総流出量や総流入量が偏って多くLocal balanceの割合が偏ってしまうチャンネルはありますか?
-                    (このようなチャンネルは片方に資金が貯まりやすく双方向に動きにくいnodeです。)
-                3.各チャンネルのLocal balanceの割合が30%-70%に近く総流出量と総流入量が多いnodeはありますか?
-                    （このようなチャンネルは双方向に流れることにより多くの資金を動かしており、より多くの手数料を稼げるため良いnodeといえます。）
-
-                最後に各チャンネルの特性に基づいて、手数料の稼ぎやすさや資金の流れの偏りを分析してください。
-                """,
-            }
-        ],
-        temperature=0, 
-        #response_format=ChannelList,
-    )
-
-    #print("##################################################")
-    channel_reasoning = response.choices[0].message.content
-    #channel_reasoning = response.choices[0].message.parsed
-    print(channel_reasoning)  # デバッグ: channel_reasoning を表示
-    #print("##################################################")
-
-    with open('response.txt', 'w', encoding='utf-8') as file:
-        file.write(channel_reasoning)
-
 
 if __name__ == '__main__':
     main()
-    #iface.launch()

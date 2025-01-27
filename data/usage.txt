@@ -1,0 +1,31 @@
+<h3>1. Create a Routing Flow List</h3><br>
+    ① Select the "Routing flow list" tab.<br>
+    ② Select the data.<br>
+    Click the "Select file" input area and choose the data from the dropdown list. (It includes data from the past week.)<br>
+    When you click the data, nodes with routing activity will be displayed along with their input and output nodes.<br>
+    ③ You can sort each item using the "Sort by" option.<br>
+    Checking the "Reverse sort" will sort the data in reverse order.<br>
+
+<h3>2. How to Upload Your Data</h3><br>
+    Retrieve Data from LND<br>
+    Download one week’s worth of forwarding data:<br>
+    <pre><code>lncli fwdinghistory --start_time "-1w" --max_events 2000 >> fwd_history_mynode.json</code></pre><br>
+    Download the channel balance data:<br>
+    <pre><code>lncli listchannels >> listchannels_mynode.json</code></pre><br>
+    Upload the Data<br>
+    Check the "Use client files" box.<br>
+    Upload the forwarding data to the upper file field.<br>
+    Upload the channel balance data to the lower file field.<br>
+
+<h3>3. Visualize Routing Flow</h3><br>
+    ① Select the "Routing visualization" tab.<br>
+    ② Set the "Min. transaction amount" and click the "Update & visualize" button.<br>
+    By setting a value for "Min. transaction amount," nodes with a transaction volume below that value will not be displayed.<br>
+    (Example: Min. transaction amount = 2000000)<br>
+
+<h3>4. AI Analysis of Routing Data</h3><br>
+    ① Select the "AI analysis" tab.<br>
+    ② Enter your question in the message input field.<br>
+    The AI will respond based on the data entered in the "Routing flow list."<br>
+    Please note that AI analysis is a paid feature. Once your current subscription runs out, you won’t be able to perform analyses unless you renew it. However, the cost is usually not significant.<br>
+    Let me know if you need any further assistance!<br>

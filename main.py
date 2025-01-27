@@ -9,6 +9,13 @@ import sys
 from dotenv import load_dotenv
 
 from datetime import datetime, timezone, timedelta
+from ecdsa import SECP256k1, ellipticcurve, numbertheory
+from ecdsa.ellipticcurve import Point
+from ecdsa.util import number_to_string
+import hashlib
+import base64
+
+
 from ai_engine import chat
 
 load_dotenv()
@@ -89,6 +96,13 @@ def convert_to_jst(unix_timestamp):
 # ディレクトリ内のファイルを抽出
 data_dir = "./data"
 files = [f for f in os.listdir(data_dir) if f.startswith("fwd_history")]
+
+def get_latest_listchannel_file(data_dir):
+    listchannel_files = [f for f in os.listdir(data_dir) if 'listchannel' in f]
+    if not listchannel_files:
+        return None
+    latest_file = max(listchannel_files, key=lambda f: os.path.getmtime(os.path.join(data_dir, f)))
+    return os.path.join(data_dir, latest_file)
 
 # fowarding履歴のJSONファイルを読み込む
 def read_fwd_data(fwd_data_file):
@@ -363,6 +377,150 @@ def generate_image(min_transaction_amount, calc_amountxsat):
 
     return image_path, data_num_node_text
 
+def zbase32_decode(zbase32_encoded):
+    """
+    zbase32エンコードされた文字列をデコードする
+    BOLT仕様に準拠したデコード
+    """
+    # 入力値の検証
+    if not zbase32_encoded or not isinstance(zbase32_encoded, str):
+        #print("無効な入力: 空または文字列ではありません")
+        return None
+
+    # zbase32のアルファベット (BOLT仕様)
+    ZBASE32_ALPHABET = "ybndrfg8ejkmcpqxot1uwisza345h769"
+    base32_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+    
+    # デバッグ情報の出力
+    #print(f"入力されたzbase32: {zbase32_encoded}")
+    
+    # 小文字に変換
+    zbase32_encoded = zbase32_encoded.lower()
+    #print(f"小文字変換後: {zbase32_encoded}")
+    
+    # 変換テーブルの作成と変換
+    translation_table = str.maketrans(ZBASE32_ALPHABET, base32_alphabet)
+    base32_encoded = zbase32_encoded.translate(translation_table)
+    #print(f"Base32変換後: {base32_encoded}")
+    
+    # パディングの追加
+    padding_length = (8 - len(base32_encoded) % 8) % 8
+    padded_base32 = base32_encoded + "=" * padding_length
+    #print(f"パディング追加後: {padded_base32}")
+    
+    try:
+        # デコード実行
+        decoded = base64.b32decode(padded_base32)
+        #print(f"デコード結果(16進数): {decoded.hex()}")
+        return decoded
+    except Exception as e:
+        print(f"デコードエラー: {e}")
+        return None
+
+def recover_public_key_from_signature(signature, message_hash):
+    """Recover public key from the signature and message hash."""
+    curve = SECP256k1.curve
+    order = SECP256k1.order
+    G = SECP256k1.generator
+
+    # Extract recovery code from the signature
+    sig_recovery_code = signature[0]
+    min_valid_code = 27
+    max_valid_code = 34
+    compact_sig_magic_offset = 27
+    compact_sig_comp_pub_key = 4
+
+    if sig_recovery_code < min_valid_code or sig_recovery_code > max_valid_code:
+        raise ValueError(f"Invalid signature: public key recovery code {sig_recovery_code} is not in the valid range [{min_valid_code}, {max_valid_code}]")
+
+    sig_recovery_code -= compact_sig_magic_offset
+    was_compressed = (sig_recovery_code & compact_sig_comp_pub_key) != 0
+    pub_key_recovery_code = sig_recovery_code & 3
+
+    r = int.from_bytes(signature[1:33], byteorder='big')
+    s = int.from_bytes(signature[33:], byteorder='big')
+
+    # Calculate the x coordinate of the R point
+    x = r + (pub_key_recovery_code // 2) * order
+
+    # Calculate the y coordinate of the R point
+    alpha = (pow(x, 3, curve.p()) + 7) % curve.p()
+    beta = numbertheory.square_root_mod_prime(alpha, curve.p())
+    y = beta if (beta % 2) == (pub_key_recovery_code % 2) else curve.p() - beta
+
+    # Create the R point
+    R = Point(curve, x, y)
+
+    # Calculate the public key
+    r_inv = pow(r, -1, order)
+    e = int.from_bytes(message_hash, byteorder='big')
+    sR = R * s
+    eG = G * e
+    Q = (sR + (-eG)) * r_inv
+
+    # Return the public key in compressed format
+    prefix = b'\x02' if Q.y() % 2 == 0 else b'\x03'
+    return prefix + number_to_string(Q.x(), order), pub_key_recovery_code
+
+def verify_message(message, signature, pubkey_bytes):
+    """署名を検証する"""
+    msg_bytes = message.encode('utf-8')
+    formatted_msg = (
+        b'Lightning Signed Message:' +
+        msg_bytes
+    )
+    
+    #print("formatted_msg :", formatted_msg.hex())
+
+    # Double SHA256
+    message_hash = hashlib.sha256(
+        hashlib.sha256(formatted_msg).digest()
+    ).digest()
+    
+    #print("message_hash :", message_hash.hex())
+
+    # 公開鍵を復元
+    recovered_pubkey, recovery_code = recover_public_key_from_signature(signature, message_hash)
+    #print(f"復元された公開鍵: {recovered_pubkey.hex()}")
+    #print(f"復元された公開鍵のリカバリフラグ: {recovery_code}")
+    #print(f"提供された公開鍵: {pubkey_bytes.hex()}")
+
+    if recovered_pubkey == pubkey_bytes:
+        #print("公開鍵が一致します")
+        return True
+    else:
+        #print("公開鍵が一致しません")
+        return False
+
+def node_auth(username, password):
+    latest_channel_file = get_latest_listchannel_file(data_dir)
+
+    with open(latest_channel_file, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+        channels = data.get("channels", [])
+        remote_pubkeys = [channel["remote_pubkey"] for channel in channels]
+        remote_pubkeys.append("039cdd937f8d83fb2f78c8d7ddc92ae28c9dbb5c4827181cfc80df60dee1b7bf19")
+
+    if username not in remote_pubkeys:
+        return False
+
+    date_str = datetime.now().strftime('%Y%m%d')
+    message = f"{date_str}_{username}"
+    #print("message: ", message)
+    #print("password: ", password)
+
+    # データをzbase32デコード
+    signature_byte_array = zbase32_decode(password)
+
+    # 署名を検証
+    is_valid = verify_message(message, signature_byte_array, bytes.fromhex(username))
+
+    if is_valid:
+        return True
+    else:
+        return False
+
+
 # メイン関数
 def main():
     global RE_DATA_GLOBAL, CHAN_DATA_GLOBAL, RE_DATA_JSON, CHAN_DATA_JSON_P
@@ -384,7 +542,6 @@ def main():
 
     # Google Analyticsのトラッキングコードを追加
     google_analytics = """
-    <!-- Google Analytics -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-51Z2XC2Z6H"></script>
     <script>
     window.dataLayer = window.dataLayer || [];
@@ -400,9 +557,13 @@ def main():
     .chat-interface { height: 800px !important; }
     """
 
+    with open('./data/usage.txt', 'r', encoding='utf-8') as f:
+        usage = f.read()
+
+
      # Gradioを利用してデータを表示
-    with gr.Blocks(css=css) as iface:
-        gr.Markdown(google_analytics)
+    with gr.Blocks(css=css, head=google_analytics) as iface:
+        #gr.Markdown(google_analytics)
         gr.Markdown(banner)  # バナーを追加
         with gr.Tabs():
             with gr.TabItem("Node information"):
@@ -484,8 +645,13 @@ def main():
                 
                 questions_markdown
 
-        iface.launch()
+            with gr.TabItem("Usage"):
+                gr.Markdown("# Usage")  # 見出しを追加
+                gr.Markdown(usage)
     
+    iface.launch(auth=node_auth)
+    #GRADIO_SHAREを設定必要かも
+
     #sys.exit()
 
 if __name__ == '__main__':

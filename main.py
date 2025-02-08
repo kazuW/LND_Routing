@@ -552,9 +552,14 @@ def main():
     </script>
     """
 
+    # CSSの定義部分を更新
     css = """
     .scrollable { overflow-x: auto; white-space: nowrap; }
-    .chat-interface { height: 800px !important; }
+    .#my_chatbot {
+        height: 1800px !important;
+        max-height: 1800px !important;
+        overflow-y: auto !important;
+    }
     """
 
     with open('./data/usage.txt', 'r', encoding='utf-8') as f:
@@ -612,7 +617,62 @@ def main():
             with gr.TabItem("AI analysis"):
                 gr.Markdown("# AI analysis")
                 translate_to_english = gr.Checkbox(label="Translate questions to English")
-                chat_interface = gr.ChatInterface(fn=lambda message, history: chat(message, history, RE_DATA_JSON), type="messages")
+                
+                """
+                chat_interface = gr.ChatInterface(
+                    fn=lambda message, history: chat(message, history, RE_DATA_JSON),
+                    type="messages"
+                )
+                """
+
+                # Chatbotコンポーネントを定義
+                chatbot = gr.Chatbot(
+                    label="AI Chat",
+                    elem_id="my_chatbot"
+                )
+
+                # ユーザー入力用Textbox
+                input_box = gr.Textbox(
+                    label="Your message",
+                    placeholder="Enter your text here..."
+                )
+
+                # 送信ボタン
+                send_button = gr.Button("Send")
+
+                # チャットのロジック
+                def chatbot_fn(user_message, history):
+                    # OpenAI形式のメッセージリストを作成
+                    messages = []
+                    for h in history:
+                        if h[0]:  # ユーザーの発話
+                            messages.append({"role": "user", "content": h[0]})
+                        if h[1]:  # アシスタントの発話
+                            messages.append({"role": "assistant", "content": h[1]})
+    
+                    # 新しい質問を追加
+                    messages.append({"role": "user", "content": user_message})
+                    
+                    print("user_message: ", user_message)
+                    print("messages: ", messages)
+                    #print("RE_DATA_JSON: ", RE_DATA_JSON)
+                    # chat関数を呼び出し、引数として渡す
+                    reply = chat(user_message, messages, RE_DATA_JSON)
+    
+                    print("reply: ", reply)
+                    # 履歴に追加して返す
+                    new_history = history + [(user_message, reply)]
+                    print("new_history: ", new_history)
+
+                    return new_history
+
+
+                # ボタンが押されたときの処理
+                send_button.click(
+                    fn=chatbot_fn,
+                    inputs=[input_box, chatbot],
+                    outputs=chatbot
+                )
 
                 gr.Markdown("## Sample questions")
 

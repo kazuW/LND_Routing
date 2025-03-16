@@ -95,7 +95,6 @@ def convert_to_jst(unix_timestamp):
 
 # ディレクトリ内のファイルを抽出
 data_dir = "./data"
-files = [f for f in os.listdir(data_dir) if f.startswith("fwd_history")]
 
 def get_latest_listchannel_file(data_dir):
     listchannel_files = [f for f in os.listdir(data_dir) if 'listchannel' in f]
@@ -567,7 +566,8 @@ def main():
 
 
      # Gradioを利用してデータを表示
-    with gr.Blocks(css=css, head=google_analytics) as iface:
+    with gr.Blocks(title="LND_Routing", css=css, head=google_analytics) as iface:
+        files = [f for f in os.listdir(data_dir) if f.startswith("fwd_history")]
         #gr.Markdown(google_analytics)
         gr.Markdown(banner)  # バナーを追加
         with gr.Tabs():
